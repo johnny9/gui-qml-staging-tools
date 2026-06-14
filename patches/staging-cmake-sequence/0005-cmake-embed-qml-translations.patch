@@ -4,8 +4,6 @@ Date: Sun, 14 Jun 2026 07:54:30 -0400
 Subject: [PATCH] cmake: Embed QML translations
 
 Compile and package the QML translation resources after the language settings commit introduces the locale sources.
-
-Staging-Only: true
 ---
  src/qml/CMakeLists.txt | 32 ++++++++++++++++++++++++++++++++
  1 file changed, 32 insertions(+)
@@ -55,4 +53,3 @@ index 80a3c547cb..7268341dfa 100644
    ${PROJECT_SOURCE_DIR}/src/init/bitcoin-qt.cpp
 -- 
 2.43.0
-

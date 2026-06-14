@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 14 Jun 2026 11:15:00 -0400
+Subject: [PATCH] qml: Avoid moc parsing Core headers in ChainModel
+
+Qt automoc parses QObject headers directly. When ChainModel keeps
+chainparams.h and interfaces/chain.h in the header, moc follows the Core
+include graph into GCC 13's C++20 <concept> header and fails with:
+
+  usr/include/c++/13/concept:46:1: error: Parse error at "std"
+
+Move the Core-only includes and Params() calls into the implementation file so
+moc only sees the Qt-facing declarations it needs.
+---
+ src/qml/models/chainmodel.cpp | 7 ++++++-
+ src/qml/models/chainmodel.h   | 9 ++-------
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/src/qml/models/chainmodel.cpp b/src/qml/models/chainmodel.cpp
+index ce3a6b12ae..5ab45a3642 100644
+--- a/src/qml/models/chainmodel.cpp
++++ b/src/qml/models/chainmodel.cpp
+@@ -4,16 +4,21 @@
+ 
+ #include <qml/models/chainmodel.h>
+ 
++#include <chainparams.h>
++
+ #include <QDateTime>
+ #include <QString>
+ #include <QThread>
+ #include <QTime>
++#include <QTimer>
+ #include <interfaces/chain.h>
+ 
+ using interfaces::FoundBlock;
+ 
+ ChainModel::ChainModel(interfaces::Chain& chain)
+-    : m_chain{chain}
++    : m_assumed_blockchain_size{Params().AssumedBlockchainSize()},
++      m_assumed_chainstate_size{Params().AssumedChainStateSize()},
++      m_chain{chain}
+ {
+     QTimer* timer = new QTimer();
+     connect(timer, &QTimer::timeout, this, &ChainModel::setCurrentTimeRatio);
+diff --git a/src/qml/models/chainmodel.h b/src/qml/models/chainmodel.h
+index 9318510eda..e6a62d19f8 100644
+--- a/src/qml/models/chainmodel.h
++++ b/src/qml/models/chainmodel.h
+@@ -5,16 +5,11 @@
+ #ifndef BITCOIN_QML_MODELS_CHAINMODEL_H
+ #define BITCOIN_QML_MODELS_CHAINMODEL_H
+ 
+-#include <chainparams.h>
+-#include <interfaces/chain.h>
+-
+ #include <QObject>
+ #include <QString>
+-#include <QTimer>
+ #include <QVariant>
+ 
+ namespace interfaces {
+-class FoundBlock;
+ class Chain;
+ } // namespace interfaces
+ 
+@@ -51,8 +46,8 @@ Q_SIGNALS:
+ 
+ private:
+     QString m_current_network_name;
+-    quint64 m_assumed_blockchain_size{ Params().AssumedBlockchainSize() };
+-    quint64 m_assumed_chainstate_size{ Params().AssumedChainStateSize() };
++    quint64 m_assumed_blockchain_size;
++    quint64 m_assumed_chainstate_size;
+     /* time_ratio: Ratio between the time at which an event
+      * happened and 12 hours. So, for example, if a block is
+      * found at 4 am or pm, the time_ratio would be 0.3.
+-- 
+2.43.0
+

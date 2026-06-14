@@ -4,8 +4,6 @@ Date: Sun, 14 Jun 2026 07:50:00 -0400
 Subject: [PATCH] cmake: Wire QML tests from src/qml
 
 Add the filtered test directory under the QML CMake target and remap the initial test paths to the new src/qml location.
-
-Staging-Only: true
 ---
  src/qml/CMakeLists.txt      | 4 ++++
  src/qml/test/CMakeLists.txt | 9 +++++----
@@ -62,4 +60,3 @@ index 2d656a0e8c..f3fce56c9a 100644
  
 -- 
 2.43.0
-

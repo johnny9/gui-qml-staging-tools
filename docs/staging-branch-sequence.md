@@ -22,23 +22,32 @@ retained from the `git format-patch` headers. Avoid `git apply` plus a fresh
 `git commit` unless you explicitly restore `GIT_AUTHOR_NAME`,
 `GIT_AUTHOR_EMAIL`, and `GIT_AUTHOR_DATE`.
 
-## 2. Prepare provenance-tagged gui-qml history
+## 2. Select gui-qml source history
 
-If the provenance-tagged source branch already exists, reuse it. Otherwise:
+Fetch the gui-qml source history that should be imported:
 
 ```bash
 cd ../gui-qml-qt6
-../gui-qml-maintainer-tools/add_filter_branch_metadata.py \
-  --source ../gui-qml-main \
-  --target-ref qt6 \
-  --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
-  --tag-target-descendants \
-  --branch codex/qt6-main-provenance-trailers \
-  --switch
+git fetch origin qt6 qt6-dev
 ```
 
-The output branch should retain `Github-Pull:`, `Rebased-From:`, and
-`Original-gui-qml-*` provenance trailers.
+Prepare the qt6 provenance branch in two stages. Commits through the PR 450
+filtered import are mapped back to the historical main branch source commits.
+Commits after that import tip are qt6-only commits, so their `Rebased-From:`
+trailers point to the qt6 commit hashes themselves.
+
+```bash
+../gui-qml-maintainer-tools/add_filter_branch_metadata.py \
+  --source ../gui-qml \
+  --source-ref origin/main \
+  --target . \
+  --target-ref origin/qt6 \
+  --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
+  --tag-target-descendants \
+  --allow-subject-fallback \
+  --branch qt6-main-provenance-trailers \
+  --switch
+```
 
 ## 3. Filter gui-qml paths onto staging
 
@@ -47,19 +56,25 @@ Build the filtered import directly on top of the staging base:
 ```bash
 cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-  --source-ref codex/qt6-main-provenance-trailers \
-  --branch codex/qt6-src-qml-on-staging \
-  --expand-pr-side-commits \
+  --source-ref qt6-main-provenance-trailers \
+  --branch qt6-src-qml-on-staging \
+  --preserve-pr-merges \
+  --trust-source-provenance \
   --base-ref refs/heads/fork/staging \
   --switch
 ```
 
-Use `--expand-pr-side-commits` for the complete staging branch. It keeps the
-linear staging import shape, but expands each `Merge bitcoin-core/gui-qml#...`
-commit into the PR-side commits first and then keeps the PR merge boundary. This
-preserves the original PR commit authors for GitHub contribution attribution.
-The older `--linear-first-parent` mode is only for compact/audit branches where
-the PR merge result is enough and individual PR-side commits are intentionally
+Use `--preserve-pr-merges` for the complete staging branch. It rewrites the
+PR-side commits onto a side branch, then recreates each
+`Merge bitcoin-core/gui-qml#...` commit as a real two-parent merge. The recreated
+merge uses the filtered original merge tree as the resolved result, so conflicts
+already resolved in reviewed gui-qml PR merges do not have to be rediscovered by
+a later linear rebase.
+
+The older `--expand-pr-side-commits` mode keeps PR-side author commits but
+linearizes the merge boundary, so it can expose conflicts that the original PR
+merge had already resolved. `--linear-first-parent` remains useful only for
+compact/audit branches where individual PR-side commits are intentionally
 collapsed.
 
 The filter rules are:
@@ -102,8 +117,10 @@ Current verified snapshot:
 
 ```text
 origin/qt6-dev              27472a542c
-fork/staging                cba6358c1b
-codex/qt6-src-qml-on-staging bda728de92
+fork/staging                12b5c02698
+qt6-main-provenance-trailers 3dac81b11c
+qt6-src-qml-on-staging  f9658a1774
+qt6-src-qml-on-staging-cmake 78b833601b
 ```
 
 ## 5. Validate
@@ -130,5 +147,7 @@ cmake --build /tmp/gui-qml-cmake-seq-build --target bitcoin-qml -j"$(nproc)"
 As of this sequence snapshot, configure succeeds. The `bitcoin-qml` build gets
 past QML/translation resource generation and then fails in Qt 6.4 automoc on
 `src/qml/models/chainmodel.h`, because moc parses a GCC 13 standard library
-`<concepts>` include and errors at `std`. That remaining fix should be handled
-near the commit that introduces `chainmodel.h`.
+`<concept>` include and errors at `std`. The unsequenced
+`patches/staging-cmake-sequence/0006-qml-avoid-moc-parsing-core-headers.patch`
+records that staging-layout fix; choose its insertion point near the commit that
+introduces `chainmodel.h`.

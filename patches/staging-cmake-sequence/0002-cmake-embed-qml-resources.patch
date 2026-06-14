@@ -4,8 +4,6 @@ Date: Sun, 14 Jun 2026 07:48:12 -0400
 Subject: [PATCH] cmake: Embed QML resources
 
 Wire the QML resource collection into the bitcoinqml library after the stub window introduces bitcoin_qml.qrc.
-
-Staging-Only: true
 ---
  src/qml/CMakeLists.txt | 7 +++++++
  1 file changed, 7 insertions(+)
@@ -30,4 +28,3 @@ index 727ca78a32..5573ad24df 100644
      QT_NO_KEYWORDS
 -- 
 2.43.0
-

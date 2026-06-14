@@ -23,6 +23,11 @@ The first patch is an amended replacement for the bootstrap CMake commit. The
 remaining patches are new commits inserted next to the gui-qml commits that make
 their CMake wiring necessary.
 
+`0006-qml-avoid-moc-parsing-core-headers.patch` is an unsequenced staging-layout
+fix for the Qt automoc failure in `src/qml/models/chainmodel.h`. Choose its
+insertion point near the commit that introduces `ChainModel` before adding it to
+`series`.
+
 If replaying or inserting these patches requires a manual conflict resolution,
 record it in `conflict-resolutions.md` before moving on to the next patch. The
 entry should name the operation, the patch or source commit being applied, the

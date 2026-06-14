@@ -44,4 +44,28 @@ audit record; this file is.
 
 ## Entries
 
-No manual conflict resolutions are currently recorded for this patch series.
+### Remap imported QML test CMake paths
+
+- Operation: `git am --3way`
+- Applying: `0004-cmake-wire-qml-tests-from-src-qml.patch`
+- Onto: `62e3ee739a3b6332bb795587f29e2b8efadc6699 cmake: Build QML sources from src/qml`
+- Conflicting paths:
+  - `src/qml/test/CMakeLists.txt`
+- Resolution:
+  - Kept the full imported gui-qml test target contents, including the newer unit
+    tests and QML test helper sources.
+  - Kept the staging patch's intent to enter `src/qml/test` from
+    `src/qml/CMakeLists.txt`.
+  - Remapped the remaining old source-tree references from `../qml` and
+    `../bitcoin/src` to `${PROJECT_SOURCE_DIR}/src/qml`,
+    `${PROJECT_SOURCE_DIR}/src`, `${PROJECT_SOURCE_DIR}/src/univalue/include`,
+    and `${PROJECT_BINARY_DIR}/src`.
+- Reason: The filtered import already contains the current test inventory, while
+  staging needs those tests to reference the integrated Bitcoin Core tree layout
+  instead of the old gui-qml checkout layout.
+- Validation:
+  - `cmake -S /home/johnny/github/gui-qml-qt6-staging-attempt -B /tmp/gui-qml-preserve-build -GNinja -DBUILD_GUI=ON -DBUILD_TESTS=OFF -DBUILD_GUI_TESTS=OFF -DENABLE_WALLET=ON -DWITH_QRENCODE=OFF -DENABLE_IPC=OFF -DWITH_ZMQ=OFF` succeeded.
+  - `cmake --build /tmp/gui-qml-preserve-build --target bitcoin-qml -j$(nproc)`
+    reached QML resource/translation generation and then failed in Qt 6.4
+    automoc on `src/qml/models/chainmodel.h` with `usr/include/c++/13/concept:46:1:
+    error: Parse error at "std"`.

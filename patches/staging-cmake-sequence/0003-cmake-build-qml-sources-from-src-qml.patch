@@ -4,8 +4,6 @@ Date: Sun, 14 Jun 2026 07:49:01 -0400
 Subject: [PATCH] cmake: Build QML sources from src/qml
 
 Switch bitcoinqml from the bootstrap bitcoin.cpp source to the filtered src/qml source tree after the first backend model sources are present.
-
-Staging-Only: true
 ---
  src/qml/CMakeLists.txt | 29 ++++++++++++++++++++++-------
  1 file changed, 22 insertions(+), 7 deletions(-)
@@ -71,4 +69,3 @@ index 5573ad24df..1d23ecfb0b 100644
  add_executable(bitcoin-qml WIN32
 -- 
 2.43.0
-
