@@ -1,0 +1,26 @@
+From 51c7877a137b3dfd75597dbd90c709d718e89d3a Mon Sep 17 00:00:00 2001
+From: Hennadii Stepanov <32963518+hebasto@users.noreply.github.com>
+Date: Mon, 8 Jun 2026 10:38:16 +0100
+Subject: [PATCH 2/5] cmake: Require Qt Qml and Qt Quick modules when
+ `BUILD_GUI=ON`
+
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 69ee54611a..2c86b4acbf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -254,7 +254,7 @@ if(WITH_USDT)
+ endif()
+ 
+ if(BUILD_GUI)
+-  set(qt_components Core Gui Widgets LinguistTools)
++  set(qt_components Core Gui Widgets Qml Quick QuickControls2 LinguistTools)
+   if(ENABLE_WALLET)
+     list(APPEND qt_components Network)
+   endif()
+-- 
+2.43.0
+
