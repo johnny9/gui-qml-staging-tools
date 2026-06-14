@@ -148,3 +148,14 @@ cd ../gui-qml-qt6
   --base-ref refs/heads/fork/staging \
   --switch
 ```
+
+## Staging CMake patch series
+
+The staging branch also needs CMake-only commits inserted around the filtered
+QML history. The repeatable patch series lives in
+`patches/staging-cmake-sequence/`, with a `series` file and insertion-point
+notes in that directory's README.
+
+For the full sequence from `origin/qt6-dev` to the complete staging branch, see
+`docs/staging-branch-sequence.md`. The staging-base commits are captured in
+`patches/staging-bootstrap/`.
