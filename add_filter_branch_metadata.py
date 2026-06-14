@@ -7,7 +7,7 @@ The normal workflow is to run this from the target checkout:
         --source ../gui-qml-main \
         --target-ref qt6 \
         --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
-        --branch codex/qt6-main-provenance-trailers
+        --branch qt6-main-provenance-trailers
 
 The script matches commits in the filtered target history back to commits in the
 source history using stable patch-ids after applying the configured path maps.
@@ -31,7 +31,7 @@ from pathlib import Path
 DEFAULT_SOURCE_REPO = "../gui-qml-main"
 DEFAULT_SOURCE_REF = "main"
 DEFAULT_TARGET_REF = "HEAD"
-DEFAULT_BRANCH = "codex/qml-provenance-trailers"
+DEFAULT_BRANCH = "qml-provenance-trailers"
 DEFAULT_PATH_MAPS = ("src/qml:qml", "qml:qml")
 PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+)(?::|$)")
 

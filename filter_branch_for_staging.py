@@ -5,8 +5,8 @@ The normal workflow is to run this from the gui-qml-qt6 checkout after adding
 provenance trailers:
 
     ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-        --source-ref codex/qt6-main-provenance-trailers \
-        --branch codex/qt6-src-qml-filtered \
+        --source-ref qt6-main-provenance-trailers \
+        --branch qt6-src-qml-filtered \
         --switch
 
 The path filter keeps only the QML application and tests:
@@ -33,7 +33,7 @@ from pathlib import Path
 
 
 DEFAULT_SOURCE_REF = "HEAD"
-DEFAULT_BRANCH = "codex/qt6-src-qml-filtered"
+DEFAULT_BRANCH = "qt6-src-qml-filtered"
 PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge (bitcoin-core/gui-qml#[0-9]+)(?::|$)")
 
 
