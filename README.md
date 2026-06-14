@@ -26,14 +26,8 @@ then the reviewed side commits are replayed oldest-first.
 Generated commits include trailers like:
 
 ```text
-Original-gui-qml-commit: <source commit>
 Rebased-From: <source commit>
-Original-gui-qml-PR: bitcoin-core/gui-qml#450
 Github-Pull: bitcoin-core/gui-qml#450
-Original-gui-qml-merge: <source merge commit>
-Original-gui-qml-merge-parents: <first parent> <second parent>
-Path-map: src/qml/=src/qml/
-Path-map: qml/=src/qml/
 ```
 
 The default path maps are `src/qml:src/qml` and `qml:src/qml`, so the tool works
@@ -54,7 +48,7 @@ cd ../gui-qml-qt6
   --source ../gui-qml-main \
   --target-ref qt6 \
   --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
-  --branch codex/qt6-main-provenance-trailers \
+  --branch qt6-main-provenance-trailers \
   --switch
 ```
 
@@ -77,7 +71,7 @@ target branch's own merge commits:
   --target-ref qt6 \
   --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
   --tag-target-descendants \
-  --branch codex/qt6-main-provenance-trailers \
+  --branch qt6-main-provenance-trailers \
   --switch
 ```
 
@@ -92,8 +86,8 @@ rewritten branch has the same tree as the original target ref.
 
 ## `filter_branch_for_staging.py`
 
-Creates a new branch from a provenance-tagged gui-qml branch with paths rewritten
-for staging integration:
+Creates a new branch from a gui-qml branch with paths rewritten for staging
+integration:
 
 ```text
 qml/             -> src/qml/
@@ -102,15 +96,22 @@ test/*           -> src/qml/test/*
 ```
 
 All other paths are dropped. Commits whose filtered tree is unchanged from their
-single surviving parent are pruned by default.
+single surviving parent are pruned by default. Rewritten commits are stamped
+with the minimal staging provenance trailers: `Rebased-From:` and
+`Github-Pull:`. `Github-Pull:` is added when the commit belongs to a
+`Merge bitcoin-core/gui-qml#...` first-parent PR context. `Rebased-From:`
+points to the gui-qml source commit hash being rewritten, so it can be used as
+a direct lookup back to the original change. When filtering a branch prepared
+by `add_filter_branch_metadata.py`, pass `--trust-source-provenance` to carry
+that branch's two-stage `Github-Pull:` and `Rebased-From:` trailers forward.
 
 Typical use from the source checkout:
 
 ```bash
 cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-  --source-ref codex/qt6-main-provenance-trailers \
-  --branch codex/qt6-src-qml-filtered \
+  --source-ref origin/qt6 \
+  --branch qt6-src-qml-filtered \
   --switch
 ```
 
@@ -121,8 +122,8 @@ the filtered merge topology:
 ```bash
 cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-  --source-ref codex/qt6-main-provenance-trailers \
-  --branch codex/qt6-src-qml-first-parent \
+  --source-ref origin/qt6 \
+  --branch qt6-src-qml-first-parent \
   --linear-first-parent \
   --switch
 
@@ -136,10 +137,30 @@ applied in maintainer order. This compact mode does not preserve the individual
 PR-side commits, so it should not be used for a final staging branch where
 GitHub contribution attribution matters.
 
-For a contributor-preserving staging branch, expand each gui-qml PR merge into
-the PR-side commits before retaining the PR merge boundary. PR-side commits are
-kept even if the path filter makes one empty, and the original author metadata
-is retained:
+For the full staging branch, first prepare qt6 with two-stage provenance. The
+commits through the PR 450 filtered import are mapped back to the historical
+main branch source commits, while qt6-only descendants get `Rebased-From:`
+trailers pointing to their qt6 commit hashes:
+
+```bash
+cd ../gui-qml-qt6
+../gui-qml-maintainer-tools/add_filter_branch_metadata.py \
+  --source ../gui-qml \
+  --source-ref origin/main \
+  --target . \
+  --target-ref origin/qt6 \
+  --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
+  --tag-target-descendants \
+  --allow-subject-fallback \
+  --branch qt6-main-provenance-trailers \
+  --switch
+```
+
+Then preserve each gui-qml PR as a chunk. This rewrites the PR-side commits
+onto a side branch, then recreates the reviewed PR merge as a real two-parent
+merge commit. The recreated merge uses the filtered original merge tree as the
+resolved result, so conflicts already worked out in gui-qml merge commits are
+not rediscovered by a later linear rebase:
 
 To avoid the rebase step entirely, build the filtered branch directly on top of
 the staging base. The filter overlays only paths that came from gui-qml, so
@@ -149,12 +170,17 @@ remain in the tree:
 ```bash
 cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-  --source-ref codex/qt6-main-provenance-trailers \
-  --branch codex/qt6-src-qml-on-staging \
-  --expand-pr-side-commits \
+  --source-ref qt6-main-provenance-trailers \
+  --branch qt6-src-qml-on-staging \
+  --preserve-pr-merges \
+  --trust-source-provenance \
   --base-ref refs/heads/fork/staging \
   --switch
 ```
+
+`--expand-pr-side-commits` remains available for a linear import that keeps
+PR-side commit authorship, but it does not preserve real merge topology and can
+surface conflicts that the original PR merge commit had already resolved.
 
 ## Staging CMake patch series
 

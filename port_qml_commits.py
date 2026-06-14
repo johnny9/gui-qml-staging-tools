@@ -25,6 +25,7 @@ DEFAULT_SOURCE_REPO = "../gui-qml-main"
 DEFAULT_SOURCE_REF = "main"
 DEFAULT_DEFAULT_PR_REPO = "bitcoin-core/gui-qml"
 DEFAULT_PATH_MAPS = ("src/qml:src/qml", "qml:src/qml")
+TRAILER_RE = re.compile(r"^([A-Za-z0-9-]+):\s*(.*)$")
 
 
 class ScriptError(RuntimeError):
@@ -349,36 +350,39 @@ def format_patch(repo: Path, commit: str, path_maps: list[PathMap]) -> str:
     )
 
 
-def path_map_trailers(path_maps: list[PathMap]) -> list[str]:
-    values: list[str] = []
-    for mapping in path_maps:
-        value = f"{mapping.source}/={mapping.target}/"
-        if value not in values:
-            values.append(value)
-    return values
-
-
 def build_trailers(item: PortCommit, commit: str, path_maps: list[PathMap], partial_replay: bool) -> list[str]:
-    trailers = [
-        f"Original-gui-qml-commit={commit}",
-        f"Rebased-From={commit}",
-    ]
+    trailers = [f"Rebased-From={commit}"]
     if item.context.pr_id:
-        trailers.extend(
-            [
-                f"Original-gui-qml-PR={item.context.pr_id}",
-                f"Github-Pull={item.context.pr_id}",
-            ]
-        )
-    if item.context.merge_commit:
-        trailers.append(f"Original-gui-qml-merge={item.context.merge_commit}")
-    if item.context.merge_parents:
-        trailers.append(f"Original-gui-qml-merge-parents={' '.join(item.context.merge_parents)}")
-    for value in path_map_trailers(path_maps):
-        trailers.append(f"Path-map={value}")
-    if partial_replay:
-        trailers.append("Ported-subset=path-limited")
+        trailers.append(f"Github-Pull={item.context.pr_id}")
     return trailers
+
+
+def strip_existing_trailers(message: str) -> str:
+    lines = message.rstrip("\n").splitlines()
+    end = len(lines)
+    while end > 0 and not lines[end - 1]:
+        end -= 1
+    if end == 0:
+        return message
+
+    start = end
+    saw_trailer = False
+    while start > 0:
+        line = lines[start - 1]
+        if TRAILER_RE.match(line):
+            saw_trailer = True
+            start -= 1
+            continue
+        if saw_trailer and line.startswith((" ", "\t")):
+            start -= 1
+            continue
+        break
+
+    if not saw_trailer or (start > 0 and lines[start - 1]):
+        return message
+
+    stripped = lines[:start] + lines[end:]
+    return "\n".join(stripped).rstrip() + "\n"
 
 
 def append_trailers(
@@ -391,7 +395,7 @@ def append_trailers(
     args = ["interpret-trailers", "--if-exists=addIfDifferent"]
     for trailer in trailers:
         args.extend(["--trailer", trailer])
-    updated = git(target_repo, *args, input_data=message)
+    updated = git(target_repo, *args, input_data=strip_existing_trailers(message))
 
     commit_args = ["commit", "--amend", "-q", "-F", "-"]
     if gpg_sign is not None:

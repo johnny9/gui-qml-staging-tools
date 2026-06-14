@@ -35,6 +35,7 @@ from pathlib import Path
 DEFAULT_SOURCE_REF = "HEAD"
 DEFAULT_BRANCH = "qt6-src-qml-filtered"
 PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge (bitcoin-core/gui-qml#[0-9]+)(?::|$)")
+TRAILER_RE = re.compile(r"^([A-Za-z0-9-]+):\s*(.*)$")
 
 
 class ScriptError(RuntimeError):
@@ -58,6 +59,9 @@ class RewriteInput:
     commit: str
     force_keep: bool = False
     source: str = "history"
+    pr_id: str | None = None
+    merge_commit: str | None = None
+    merge_parents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -209,14 +213,33 @@ def rewrite_inputs(
         for item in first_parent_history(repo, source_ref):
             match = PR_IN_MERGE_SUBJECT_RE.match(item.subject)
             if match and len(item.parents) == 2:
+                pr_id = match.group(1)
                 side_commits = git(repo, "rev-list", "--reverse", f"{item.parents[0]}..{item.parents[1]}").splitlines()
                 for side_commit in side_commits:
                     if side_commit in emitted:
                         continue
-                    commits.append(RewriteInput(side_commit, force_keep=True, source="pr-side"))
+                    commits.append(
+                        RewriteInput(
+                            side_commit,
+                            force_keep=True,
+                            source="pr-side",
+                            pr_id=pr_id,
+                            merge_commit=item.commit,
+                            merge_parents=item.parents,
+                        )
+                    )
                     emitted.add(side_commit)
                 if item.commit not in emitted:
-                    commits.append(RewriteInput(item.commit, force_keep=True, source="pr-merge"))
+                    commits.append(
+                        RewriteInput(
+                            item.commit,
+                            force_keep=True,
+                            source="pr-merge",
+                            pr_id=pr_id,
+                            merge_commit=item.commit,
+                            merge_parents=item.parents,
+                        )
+                    )
                     emitted.add(item.commit)
                 continue
 
@@ -297,6 +320,22 @@ def filtered_tree_for_commit(repo: Path, commit: str, stats: FilterStats) -> str
         lock_path.unlink(missing_ok=True)
 
 
+def filtered_import_tree(
+    repo: Path,
+    commit: str,
+    stats: FilterStats,
+    *,
+    base_ref: str | None,
+    owned_paths: set[str],
+) -> str:
+    tree = filtered_tree_for_commit(repo, commit, stats)
+    if base_ref:
+        _entries, current_paths = tree_index_entries(repo, tree)
+        owned_paths.update(current_paths)
+        tree = overlay_tree(repo, base_ref, tree, owned_paths)
+    return tree
+
+
 def tree_index_entries(repo: Path, tree: str) -> tuple[list[bytes], set[str]]:
     raw = git_bytes(repo, "ls-tree", "-rz", "-r", tree)
     entries: list[bytes] = []
@@ -340,10 +379,82 @@ def filtered_final_paths(repo: Path, commit: str) -> list[str]:
     return git(repo, "ls-tree", "-r", "--name-only", commit).splitlines()
 
 
-def create_commit(repo: Path, tree: str, parents: list[str], data: CommitData) -> str:
+def existing_trailer_value(message: str, key: str) -> str | None:
+    prefix = key.lower() + ":"
+    values: list[str] = []
+    for line in message.splitlines():
+        if line.lower().startswith(prefix):
+            values.append(line.split(":", 1)[1].strip())
+    return values[-1] if values else None
+
+
+def build_provenance_trailers(
+    message: str,
+    commit: str,
+    *,
+    pr_id: str | None = None,
+    trust_existing: bool = False,
+) -> list[str]:
+    if trust_existing:
+        rebased_from = existing_trailer_value(message, "Rebased-From") or commit
+        github_pull = existing_trailer_value(message, "Github-Pull") or pr_id
+    else:
+        rebased_from = commit
+        github_pull = pr_id
+
+    trailers = [f"Rebased-From={rebased_from}"]
+    if github_pull:
+        trailers.append(f"Github-Pull={github_pull}")
+    return trailers
+
+
+def strip_provenance_trailers(message: str) -> str:
+    lines = message.rstrip("\n").splitlines()
+    end = len(lines)
+    while end > 0 and not lines[end - 1]:
+        end -= 1
+    if end == 0:
+        return message
+
+    start = end
+    saw_trailer = False
+    while start > 0:
+        line = lines[start - 1]
+        if TRAILER_RE.match(line):
+            saw_trailer = True
+            start -= 1
+            continue
+        if saw_trailer and line.startswith((" ", "\t")):
+            start -= 1
+            continue
+        break
+
+    if not saw_trailer or (start > 0 and lines[start - 1]):
+        return message
+
+    stripped = lines[:start] + lines[end:]
+    return "\n".join(stripped).rstrip() + "\n"
+
+
+def apply_trailers(repo: Path, message: str, trailers: list[str]) -> str:
+    args = ["interpret-trailers", "--if-exists=addIfDifferent"]
+    for trailer in trailers:
+        args.extend(["--trailer", trailer])
+    return git(repo, *args, input_data=strip_provenance_trailers(message))
+
+
+def create_commit(
+    repo: Path,
+    tree: str,
+    parents: list[str],
+    data: CommitData,
+    *,
+    trailers: list[str] | None = None,
+) -> str:
     parent_args: list[str] = []
     for parent in parents:
         parent_args.extend(["-p", parent])
+    message = apply_trailers(repo, data.message, trailers) if trailers else data.message
     env = os.environ.copy()
     env.update(
         {
@@ -355,7 +466,7 @@ def create_commit(repo: Path, tree: str, parents: list[str], data: CommitData) -
             "GIT_COMMITTER_DATE": data.committer_date,
         }
     )
-    return git(repo, "commit-tree", tree, *parent_args, input_data=data.message, env=env).strip()
+    return git(repo, "commit-tree", tree, *parent_args, input_data=message, env=env).strip()
 
 
 def tree_of(repo: Path, commit: str, cache: dict[str, str]) -> str:
@@ -371,8 +482,19 @@ def rewrite_history(
     prune_empty: bool,
     linear_first_parent: bool,
     expand_pr_side_commits: bool,
+    preserve_pr_merges: bool,
     base_ref: str | None,
+    trust_source_provenance: bool,
 ) -> tuple[str, dict[str, str | None], FilterStats, Counter[str]]:
+    if preserve_pr_merges:
+        return rewrite_history_preserve_pr_merges(
+            repo,
+            source_ref,
+            prune_empty=prune_empty,
+            base_ref=base_ref,
+            trust_source_provenance=trust_source_provenance,
+        )
+
     commits = rewrite_inputs(
         repo,
         source_ref,
@@ -399,11 +521,7 @@ def rewrite_history(
     for index, input_commit in enumerate(commits, 1):
         old_commit = input_commit.commit
         data = commit_data(repo, old_commit)
-        tree = filtered_tree_for_commit(repo, old_commit, stats)
-        if base_ref:
-            _entries, current_paths = tree_index_entries(repo, tree)
-            owned_paths.update(current_paths)
-            tree = overlay_tree(repo, base_ref, tree, owned_paths)
+        tree = filtered_import_tree(repo, old_commit, stats, base_ref=base_ref, owned_paths=owned_paths)
         parents: list[str] = []
         if linear_import:
             if last_new_commit:
@@ -432,7 +550,13 @@ def rewrite_history(
                 rewrite_stats["pruned"] += 1
                 continue
 
-        new_commit = create_commit(repo, tree, parents, data)
+        trailers = build_provenance_trailers(
+            data.message,
+            old_commit,
+            pr_id=input_commit.pr_id,
+            trust_existing=trust_source_provenance,
+        )
+        new_commit = create_commit(repo, tree, parents, data, trailers=trailers)
         rewrite[old_commit] = new_commit
         new_tree_cache[new_commit] = tree
         last_new_commit = new_commit
@@ -444,6 +568,124 @@ def rewrite_history(
 
         if index % 200 == 0 or index == len(commits):
             print(f"processed {index}/{len(commits)}")
+
+    new_head = rewrite.get(source_ref)
+    if not new_head:
+        raise ScriptError("path filter removed the source ref")
+    return new_head, rewrite, stats, rewrite_stats
+
+
+def rewrite_history_preserve_pr_merges(
+    repo: Path,
+    source_ref: str,
+    *,
+    prune_empty: bool,
+    base_ref: str | None,
+    trust_source_provenance: bool,
+) -> tuple[str, dict[str, str | None], FilterStats, Counter[str]]:
+    first_parent_commits = first_parent_history(repo, source_ref)
+    if not first_parent_commits:
+        raise ScriptError(f"no commits found for {source_ref}")
+
+    empty = empty_tree(repo)
+    rewrite: dict[str, str | None] = {}
+    new_tree_cache: dict[str, str] = {}
+    stats = FilterStats()
+    rewrite_stats: Counter[str] = Counter()
+    rewrite_stats["first_parent_input_commits"] = len(first_parent_commits)
+    owned_paths: set[str] = set()
+    last_new_commit: str | None = None
+    emitted_side_commits: set[str] = set()
+
+    for index, item in enumerate(first_parent_commits, 1):
+        data = commit_data(repo, item.commit)
+        match = PR_IN_MERGE_SUBJECT_RE.match(item.subject)
+
+        if match and len(item.parents) == 2:
+            main_parent = last_new_commit or base_ref
+            side_tip = main_parent
+            side_commits = git(repo, "rev-list", "--reverse", f"{item.parents[0]}..{item.parents[1]}").splitlines()
+
+            for side_commit in side_commits:
+                existing_side = rewrite.get(side_commit)
+                if side_commit in emitted_side_commits:
+                    if existing_side:
+                        side_tip = existing_side
+                    continue
+
+                side_data = commit_data(repo, side_commit)
+                side_tree = filtered_import_tree(repo, side_commit, stats, base_ref=base_ref, owned_paths=owned_paths)
+                side_parents = [side_tip] if side_tip else []
+                side_trailers = build_provenance_trailers(
+                    side_data.message,
+                    side_commit,
+                    pr_id=match.group(1),
+                    trust_existing=trust_source_provenance,
+                )
+                new_side = create_commit(repo, side_tree, side_parents, side_data, trailers=side_trailers)
+                rewrite[side_commit] = new_side
+                new_tree_cache[new_side] = side_tree
+                side_tip = new_side
+                emitted_side_commits.add(side_commit)
+                rewrite_stats["rewritten"] += 1
+                rewrite_stats["pr_side_commits"] += 1
+
+            merge_tree = filtered_import_tree(repo, item.commit, stats, base_ref=base_ref, owned_paths=owned_paths)
+            merge_parents: list[str] = []
+            if main_parent:
+                merge_parents.append(main_parent)
+            if side_tip and side_tip != main_parent:
+                merge_parents.append(side_tip)
+            merge_trailers = build_provenance_trailers(
+                data.message,
+                item.commit,
+                pr_id=match.group(1),
+                trust_existing=trust_source_provenance,
+            )
+            new_merge = create_commit(repo, merge_tree, merge_parents, data, trailers=merge_trailers)
+            rewrite[item.commit] = new_merge
+            new_tree_cache[new_merge] = merge_tree
+            last_new_commit = new_merge
+            rewrite_stats["rewritten"] += 1
+            rewrite_stats["pr_merges"] += 1
+            if len(merge_parents) > 1:
+                rewrite_stats["merge_commits"] += 1
+
+            if index % 50 == 0 or index == len(first_parent_commits):
+                print(f"processed {index}/{len(first_parent_commits)}")
+            continue
+
+        tree = filtered_import_tree(repo, item.commit, stats, base_ref=base_ref, owned_paths=owned_paths)
+        parents: list[str] = []
+        if last_new_commit:
+            parents.append(last_new_commit)
+        elif base_ref:
+            parents.append(base_ref)
+
+        if prune_empty:
+            if not parents and tree == empty:
+                rewrite[item.commit] = None
+                rewrite_stats["pruned"] += 1
+                continue
+            if len(parents) == 1 and tree == tree_of(repo, parents[0], new_tree_cache):
+                rewrite[item.commit] = parents[0]
+                rewrite_stats["pruned"] += 1
+                continue
+
+        trailers = build_provenance_trailers(
+            data.message,
+            item.commit,
+            trust_existing=trust_source_provenance,
+        )
+        new_commit = create_commit(repo, tree, parents, data, trailers=trailers)
+        rewrite[item.commit] = new_commit
+        new_tree_cache[new_commit] = tree
+        last_new_commit = new_commit
+        rewrite_stats["rewritten"] += 1
+        rewrite_stats["first_parent_commits"] += 1
+
+        if index % 50 == 0 or index == len(first_parent_commits):
+            print(f"processed {index}/{len(first_parent_commits)}")
 
     new_head = rewrite.get(source_ref)
     if not new_head:
@@ -514,10 +756,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--preserve-pr-merges",
+        "--pr-merge-chunks",
+        action="store_true",
+        help=(
+            "rewrite first-parent gui-qml PR merges as real two-parent merge commits; "
+            "the recreated merge uses the filtered original merge tree as the resolved result"
+        ),
+    )
+    parser.add_argument(
         "--base-ref",
         help="build rewritten commits on this base tree, preserving paths not owned by the filter",
     )
     parser.add_argument("--write-map", type=Path, help="write old-to-new rewrite map to this file")
+    parser.add_argument(
+        "--trust-source-provenance",
+        action="store_true",
+        help=(
+            "reuse existing Github-Pull/Rebased-From trailers from the source ref; "
+            "use after add_filter_branch_metadata.py has prepared two-stage provenance"
+        ),
+    )
     return parser
 
 
@@ -526,8 +785,14 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if args.linear_first_parent and args.expand_pr_side_commits:
-            raise ScriptError("--linear-first-parent and --expand-pr-side-commits are mutually exclusive")
+        mode_count = sum(
+            bool(value)
+            for value in (args.linear_first_parent, args.expand_pr_side_commits, args.preserve_pr_merges)
+        )
+        if mode_count > 1:
+            raise ScriptError(
+                "--linear-first-parent, --expand-pr-side-commits, and --preserve-pr-merges are mutually exclusive"
+            )
         repo = git_top_level(Path(args.repo).resolve())
         old_head = rev_parse(repo, args.source_ref)
         base_ref = rev_parse(repo, args.base_ref) if args.base_ref else None
@@ -546,7 +811,9 @@ def main() -> int:
             prune_empty=not args.keep_empty,
             linear_first_parent=args.linear_first_parent,
             expand_pr_side_commits=args.expand_pr_side_commits,
+            preserve_pr_merges=args.preserve_pr_merges,
             base_ref=base_ref,
+            trust_source_provenance=args.trust_source_provenance,
         )
         branch_args = ["branch"]
         if args.force_branch:
