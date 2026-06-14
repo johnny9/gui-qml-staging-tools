@@ -22,3 +22,9 @@ must be amended manually, use `git commit --amend --no-edit` without
 The first patch is an amended replacement for the bootstrap CMake commit. The
 remaining patches are new commits inserted next to the gui-qml commits that make
 their CMake wiring necessary.
+
+If replaying or inserting these patches requires a manual conflict resolution,
+record it in `conflict-resolutions.md` before moving on to the next patch. The
+entry should name the operation, the patch or source commit being applied, the
+conflicting paths, the staging-specific resolution, and the validation command
+that covered it.

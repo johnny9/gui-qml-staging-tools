@@ -92,6 +92,12 @@ necessary.
 For manually amended checkpoints, preserve the existing author by using
 `git commit --amend --no-edit` and do not pass `--reset-author`.
 
+If any insertion or rewrite step stops for a conflict, document the manual
+resolution in `patches/staging-cmake-sequence/conflict-resolutions.md` before
+continuing the sequence. Each entry should identify the operation, the patch or
+source commit being applied, the conflicting paths, the staging-specific
+decision, and the validation command that covered the result.
+
 Current verified snapshot:
 
 ```text
