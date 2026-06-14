@@ -1,0 +1,65 @@
+From a1ca2e165b2685a2094c52236af70712918544b6 Mon Sep 17 00:00:00 2001
+From: johnny9 <985648+johnny9@users.noreply.github.com>
+Date: Sun, 14 Jun 2026 07:50:00 -0400
+Subject: [PATCH] cmake: Wire QML tests from src/qml
+
+Add the filtered test directory under the QML CMake target and remap the initial test paths to the new src/qml location.
+
+Staging-Only: true
+---
+ src/qml/CMakeLists.txt      | 4 ++++
+ src/qml/test/CMakeLists.txt | 9 +++++----
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/src/qml/CMakeLists.txt b/src/qml/CMakeLists.txt
+index 1d23ecfb0b..80a3c547cb 100644
+--- a/src/qml/CMakeLists.txt
++++ b/src/qml/CMakeLists.txt
+@@ -68,6 +68,10 @@ target_link_libraries(bitcoin-qml
+ 
+ install_binary_component(bitcoin-qml)
+ 
++if(BUILD_GUI_TESTS)
++  add_subdirectory(test)
++endif()
++
+ # Use the `bitcoin-qml` target as a drop-in replacement
+ # for the legacy QtWidgets-based `bitcoin-qt`.
+ set_target_properties(bitcoin-qt PROPERTIES
+diff --git a/src/qml/test/CMakeLists.txt b/src/qml/test/CMakeLists.txt
+index 2d656a0e8c..f3fce56c9a 100644
+--- a/src/qml/test/CMakeLists.txt
++++ b/src/qml/test/CMakeLists.txt
+@@ -7,7 +7,7 @@ find_package(Qt 6.2 MODULE REQUIRED COMPONENTS Core Test Qml Quick QuickTest)
+ add_executable(bitcoinqml_unit_tests
+   test_unit_tests_main.cpp
+   test_bitcoinamount.cpp
+-  ${CMAKE_CURRENT_SOURCE_DIR}/../qml/bitcoinamount.cpp
++  ${PROJECT_SOURCE_DIR}/src/qml/bitcoinamount.cpp
+ )
+ 
+ target_compile_definitions(bitcoinqml_unit_tests
+@@ -17,8 +17,9 @@ target_compile_definitions(bitcoinqml_unit_tests
+ 
+ target_include_directories(bitcoinqml_unit_tests
+   PRIVATE
+-    ${CMAKE_CURRENT_SOURCE_DIR}/..
+-    ${CMAKE_CURRENT_SOURCE_DIR}/../bitcoin/src
++    ${PROJECT_SOURCE_DIR}/src
++    ${PROJECT_SOURCE_DIR}/src/qml
++    ${PROJECT_BINARY_DIR}/src
+ )
+ 
+ target_link_libraries(bitcoinqml_unit_tests
+@@ -35,7 +36,7 @@ add_executable(bitcoinqml_qmltests
+ 
+ target_compile_definitions(bitcoinqml_qmltests
+   PRIVATE
+-    BITCOINQML_QML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../qml"
++    BITCOINQML_QML_SOURCE_DIR="${PROJECT_SOURCE_DIR}/src/qml"
+     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+ )
+ 
+-- 
+2.43.0
+

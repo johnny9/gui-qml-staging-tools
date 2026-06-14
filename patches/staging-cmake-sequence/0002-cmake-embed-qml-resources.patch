@@ -1,0 +1,33 @@
+From f3cc3ed40e8675ea7948960d6f8d25c9230e84be Mon Sep 17 00:00:00 2001
+From: johnny9 <985648+johnny9@users.noreply.github.com>
+Date: Sun, 14 Jun 2026 07:48:12 -0400
+Subject: [PATCH] cmake: Embed QML resources
+
+Wire the QML resource collection into the bitcoinqml library after the stub window introduces bitcoin_qml.qrc.
+
+Staging-Only: true
+---
+ src/qml/CMakeLists.txt | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/qml/CMakeLists.txt b/src/qml/CMakeLists.txt
+index 727ca78a32..5573ad24df 100644
+--- a/src/qml/CMakeLists.txt
++++ b/src/qml/CMakeLists.txt
+@@ -8,6 +8,13 @@ add_library(bitcoinqml STATIC
+   bitcoin.cpp
+ )
+ 
++set(QML_QRC "${CMAKE_CURRENT_SOURCE_DIR}/bitcoin_qml.qrc")
++qt6_add_resources(QML_QRC_CPP ${QML_QRC})
++target_sources(bitcoinqml
++  PRIVATE
++    ${QML_QRC_CPP}
++)
++
+ target_compile_definitions(bitcoinqml
+   PUBLIC
+     QT_NO_KEYWORDS
+-- 
+2.43.0
+

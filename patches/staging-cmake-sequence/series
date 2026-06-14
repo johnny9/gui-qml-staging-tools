@@ -1,0 +1,5 @@
+0001-cmake-add-bitcoinqml-bootstrap.patch
+0002-cmake-embed-qml-resources.patch
+0003-cmake-build-qml-sources-from-src-qml.patch
+0004-cmake-wire-qml-tests-from-src-qml.patch
+0005-cmake-embed-qml-translations.patch
