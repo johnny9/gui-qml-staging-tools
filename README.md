@@ -114,7 +114,7 @@ cd ../gui-qml-qt6
   --switch
 ```
 
-For a branch that will be rebased onto a staging branch with regular
+For a compact branch that will be rebased onto a staging branch with regular
 `git rebase`, generate a linear first-parent import stream instead of preserving
 the filtered merge topology:
 
@@ -132,7 +132,14 @@ git rebase --root --onto refs/heads/fork/staging
 This avoids conflicts caused by normal rebase flattening side-branch commits
 from different gui-qml PRs onto each other. Each retained commit represents the
 filtered tree change along gui-qml first-parent history, so PR merge results are
-applied in maintainer order.
+applied in maintainer order. This compact mode does not preserve the individual
+PR-side commits, so it should not be used for a final staging branch where
+GitHub contribution attribution matters.
+
+For a contributor-preserving staging branch, expand each gui-qml PR merge into
+the PR-side commits before retaining the PR merge boundary. PR-side commits are
+kept even if the path filter makes one empty, and the original author metadata
+is retained:
 
 To avoid the rebase step entirely, build the filtered branch directly on top of
 the staging base. The filter overlays only paths that came from gui-qml, so
@@ -144,7 +151,7 @@ cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
   --source-ref codex/qt6-main-provenance-trailers \
   --branch codex/qt6-src-qml-on-staging \
-  --linear-first-parent \
+  --expand-pr-side-commits \
   --base-ref refs/heads/fork/staging \
   --switch
 ```

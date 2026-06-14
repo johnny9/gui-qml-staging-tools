@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -33,6 +34,7 @@ from pathlib import Path
 
 DEFAULT_SOURCE_REF = "HEAD"
 DEFAULT_BRANCH = "codex/qt6-src-qml-filtered"
+PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge (bitcoin-core/gui-qml#[0-9]+)(?::|$)")
 
 
 class ScriptError(RuntimeError):
@@ -49,6 +51,20 @@ class CommitData:
     committer_email: str
     committer_date: str
     message: str
+
+
+@dataclass(frozen=True)
+class RewriteInput:
+    commit: str
+    force_keep: bool = False
+    source: str = "history"
+
+
+@dataclass(frozen=True)
+class FirstParentCommit:
+    commit: str
+    parents: tuple[str, ...]
+    subject: str
 
 
 @dataclass
@@ -155,6 +171,67 @@ def commit_data(repo: Path, commit: str) -> CommitData:
         committer_date=committer_date,
         message=message,
     )
+
+
+def first_parent_history(repo: Path, ref: str) -> list[FirstParentCommit]:
+    raw = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x00%P%x00%s%x00END%x00", ref)
+    fields = raw.split("\x00")
+    records: list[FirstParentCommit] = []
+    for index in range(0, len(fields) - 1, 4):
+        commit, parents, subject, marker = fields[index : index + 4]
+        commit = commit.strip()
+        parents = parents.strip()
+        marker = marker.strip()
+        if not commit:
+            continue
+        if marker != "END":
+            raise ScriptError("could not parse first-parent history")
+        records.append(
+            FirstParentCommit(
+                commit=commit,
+                parents=tuple(parent for parent in parents.split() if parent),
+                subject=subject,
+            )
+        )
+    return records
+
+
+def rewrite_inputs(
+    repo: Path,
+    source_ref: str,
+    *,
+    linear_first_parent: bool,
+    expand_pr_side_commits: bool,
+) -> list[RewriteInput]:
+    if expand_pr_side_commits:
+        commits: list[RewriteInput] = []
+        emitted: set[str] = set()
+        for item in first_parent_history(repo, source_ref):
+            match = PR_IN_MERGE_SUBJECT_RE.match(item.subject)
+            if match and len(item.parents) == 2:
+                side_commits = git(repo, "rev-list", "--reverse", f"{item.parents[0]}..{item.parents[1]}").splitlines()
+                for side_commit in side_commits:
+                    if side_commit in emitted:
+                        continue
+                    commits.append(RewriteInput(side_commit, force_keep=True, source="pr-side"))
+                    emitted.add(side_commit)
+                if item.commit not in emitted:
+                    commits.append(RewriteInput(item.commit, force_keep=True, source="pr-merge"))
+                    emitted.add(item.commit)
+                continue
+
+            if item.commit not in emitted:
+                commits.append(RewriteInput(item.commit, source="first-parent"))
+                emitted.add(item.commit)
+        return commits
+
+    rev_list_args = ["rev-list", "--reverse"]
+    if linear_first_parent:
+        rev_list_args.append("--first-parent")
+    else:
+        rev_list_args.append("--topo-order")
+    rev_list_args.append(source_ref)
+    return [RewriteInput(commit) for commit in git(repo, *rev_list_args).splitlines()]
 
 
 def rewrite_path(path: str) -> tuple[str | None, str | None]:
@@ -293,15 +370,15 @@ def rewrite_history(
     *,
     prune_empty: bool,
     linear_first_parent: bool,
+    expand_pr_side_commits: bool,
     base_ref: str | None,
 ) -> tuple[str, dict[str, str | None], FilterStats, Counter[str]]:
-    rev_list_args = ["rev-list", "--reverse"]
-    if linear_first_parent:
-        rev_list_args.append("--first-parent")
-    else:
-        rev_list_args.append("--topo-order")
-    rev_list_args.append(source_ref)
-    commits = git(repo, *rev_list_args).splitlines()
+    commits = rewrite_inputs(
+        repo,
+        source_ref,
+        linear_first_parent=linear_first_parent,
+        expand_pr_side_commits=expand_pr_side_commits,
+    )
     if not commits:
         raise ScriptError(f"no commits found for {source_ref}")
 
@@ -312,10 +389,15 @@ def rewrite_history(
     rewrite_stats: Counter[str] = Counter()
     if linear_first_parent:
         rewrite_stats["linear_first_parent_input_commits"] = len(commits)
+    if expand_pr_side_commits:
+        rewrite_stats["expanded_input_commits"] = len(commits)
+        rewrite_stats.update(commit.source for commit in commits)
     last_new_commit: str | None = None
     owned_paths: set[str] = set()
+    linear_import = linear_first_parent or expand_pr_side_commits
 
-    for index, old_commit in enumerate(commits, 1):
+    for index, input_commit in enumerate(commits, 1):
+        old_commit = input_commit.commit
         data = commit_data(repo, old_commit)
         tree = filtered_tree_for_commit(repo, old_commit, stats)
         if base_ref:
@@ -323,7 +405,7 @@ def rewrite_history(
             owned_paths.update(current_paths)
             tree = overlay_tree(repo, base_ref, tree, owned_paths)
         parents: list[str] = []
-        if linear_first_parent:
+        if linear_import:
             if last_new_commit:
                 parents.append(last_new_commit)
             elif base_ref:
@@ -336,7 +418,7 @@ def rewrite_history(
             if not parents and base_ref:
                 parents.append(base_ref)
 
-        if prune_empty:
+        if prune_empty and not input_commit.force_keep:
             if not parents and tree == empty:
                 rewrite[old_commit] = None
                 rewrite_stats["pruned"] += 1
@@ -355,6 +437,8 @@ def rewrite_history(
         new_tree_cache[new_commit] = tree
         last_new_commit = new_commit
         rewrite_stats["rewritten"] += 1
+        if input_commit.force_keep:
+            rewrite_stats["force_kept"] += 1
         if len(parents) > 1:
             rewrite_stats["merge_commits"] += 1
 
@@ -422,6 +506,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="rewrite only source first-parent history as a linear import stream",
     )
     parser.add_argument(
+        "--expand-pr-side-commits",
+        action="store_true",
+        help=(
+            "rewrite a linear import stream that expands each gui-qml PR merge "
+            "into its PR-side commits before the merge boundary"
+        ),
+    )
+    parser.add_argument(
         "--base-ref",
         help="build rewritten commits on this base tree, preserving paths not owned by the filter",
     )
@@ -434,6 +526,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.linear_first_parent and args.expand_pr_side_commits:
+            raise ScriptError("--linear-first-parent and --expand-pr-side-commits are mutually exclusive")
         repo = git_top_level(Path(args.repo).resolve())
         old_head = rev_parse(repo, args.source_ref)
         base_ref = rev_parse(repo, args.base_ref) if args.base_ref else None
@@ -451,6 +545,7 @@ def main() -> int:
             old_head,
             prune_empty=not args.keep_empty,
             linear_first_parent=args.linear_first_parent,
+            expand_pr_side_commits=args.expand_pr_side_commits,
             base_ref=base_ref,
         )
         branch_args = ["branch"]

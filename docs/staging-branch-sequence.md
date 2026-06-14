@@ -49,10 +49,18 @@ cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
   --source-ref codex/qt6-main-provenance-trailers \
   --branch codex/qt6-src-qml-on-staging \
-  --linear-first-parent \
+  --expand-pr-side-commits \
   --base-ref refs/heads/fork/staging \
   --switch
 ```
+
+Use `--expand-pr-side-commits` for the complete staging branch. It keeps the
+linear staging import shape, but expands each `Merge bitcoin-core/gui-qml#...`
+commit into the PR-side commits first and then keeps the PR merge boundary. This
+preserves the original PR commit authors for GitHub contribution attribution.
+The older `--linear-first-parent` mode is only for compact/audit branches where
+the PR merge result is enough and individual PR-side commits are intentionally
+collapsed.
 
 The filter rules are:
 
