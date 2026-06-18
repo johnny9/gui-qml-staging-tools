@@ -156,11 +156,11 @@ cd ../gui-qml-qt6
   --switch
 ```
 
-Then preserve each gui-qml PR as a chunk. This rewrites the PR-side commits
-onto a side branch, then recreates the reviewed PR merge as a real two-parent
-merge commit. The recreated merge uses the filtered original merge tree as the
-resolved result, so conflicts already worked out in gui-qml merge commits are
-not rediscovered by a later linear rebase:
+Then build a single-parent staging import that keeps the reviewed PR-side
+commits but does not recreate or carry over the first-parent
+`Merge bitcoin-core/gui-qml#...` commits. The linear PR history mode applies
+the PR-side commits in maintainer order; `--drop-pr-merge-boundaries` omits the
+merge-result boundary commits from the generated staging branch.
 
 To avoid the rebase step entirely, build the filtered branch directly on top of
 the staging base. The filter overlays only paths that came from gui-qml, so
@@ -172,15 +172,18 @@ cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
   --source-ref qt6-main-provenance-trailers \
   --branch qt6-src-qml-on-staging \
-  --preserve-pr-merges \
+  --linear-pr-history \
+  --drop-pr-merge-boundaries \
   --trust-source-provenance \
   --base-ref refs/heads/fork/staging \
   --switch
 ```
 
-`--expand-pr-side-commits` remains available for a linear import that keeps
-PR-side commit authorship, but it does not preserve real merge topology and can
-surface conflicts that the original PR merge commit had already resolved.
+`--linear-pr-history` is an alias for the older `--expand-pr-side-commits`
+mode. Use `--preserve-pr-merges` only when you specifically want review chunks
+as recreated two-parent merge commits. Use `--retitle-pr-merge-boundaries`
+instead of `--drop-pr-merge-boundaries` only when you want to keep the
+merge-result boundary commits while avoiding `Merge ...` subjects.
 
 ## Staging CMake patch series
 

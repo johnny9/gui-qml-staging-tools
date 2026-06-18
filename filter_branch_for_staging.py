@@ -28,7 +28,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -206,6 +206,7 @@ def rewrite_inputs(
     *,
     linear_first_parent: bool,
     expand_pr_side_commits: bool,
+    drop_pr_merge_boundaries: bool,
 ) -> list[RewriteInput]:
     if expand_pr_side_commits:
         commits: list[RewriteInput] = []
@@ -229,7 +230,7 @@ def rewrite_inputs(
                         )
                     )
                     emitted.add(side_commit)
-                if item.commit not in emitted:
+                if not drop_pr_merge_boundaries and item.commit not in emitted:
                     commits.append(
                         RewriteInput(
                             item.commit,
@@ -443,6 +444,16 @@ def apply_trailers(repo: Path, message: str, trailers: list[str]) -> str:
     return git(repo, *args, input_data=strip_provenance_trailers(message))
 
 
+def retitle_pr_merge_boundary(message: str) -> str:
+    lines = message.splitlines()
+    if not lines:
+        return message
+    if not PR_IN_MERGE_SUBJECT_RE.match(lines[0]):
+        return message
+    lines[0] = re.sub(r"^Merge (bitcoin-core/gui-qml#[0-9]+)", r"Apply \1", lines[0], count=1)
+    return "\n".join(lines) + ("\n" if message.endswith("\n") else "")
+
+
 def create_commit(
     repo: Path,
     tree: str,
@@ -483,6 +494,8 @@ def rewrite_history(
     linear_first_parent: bool,
     expand_pr_side_commits: bool,
     preserve_pr_merges: bool,
+    retitle_pr_merge_boundaries: bool,
+    drop_pr_merge_boundaries: bool,
     base_ref: str | None,
     trust_source_provenance: bool,
 ) -> tuple[str, dict[str, str | None], FilterStats, Counter[str]]:
@@ -500,6 +513,7 @@ def rewrite_history(
         source_ref,
         linear_first_parent=linear_first_parent,
         expand_pr_side_commits=expand_pr_side_commits,
+        drop_pr_merge_boundaries=drop_pr_merge_boundaries,
     )
     if not commits:
         raise ScriptError(f"no commits found for {source_ref}")
@@ -521,6 +535,8 @@ def rewrite_history(
     for index, input_commit in enumerate(commits, 1):
         old_commit = input_commit.commit
         data = commit_data(repo, old_commit)
+        if retitle_pr_merge_boundaries and input_commit.source == "pr-merge":
+            data = replace(data, message=retitle_pr_merge_boundary(data.message))
         tree = filtered_import_tree(repo, old_commit, stats, base_ref=base_ref, owned_paths=owned_paths)
         parents: list[str] = []
         if linear_import:
@@ -569,7 +585,7 @@ def rewrite_history(
         if index % 200 == 0 or index == len(commits):
             print(f"processed {index}/{len(commits)}")
 
-    new_head = rewrite.get(source_ref)
+    new_head = rewrite.get(source_ref) or last_new_commit
     if not new_head:
         raise ScriptError("path filter removed the source ref")
     return new_head, rewrite, stats, rewrite_stats
@@ -749,10 +765,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--expand-pr-side-commits",
+        "--linear-pr-history",
         action="store_true",
         help=(
-            "rewrite a linear import stream that expands each gui-qml PR merge "
-            "into its PR-side commits before the merge boundary"
+            "rewrite a single-parent import stream that expands each gui-qml PR "
+            "merge into its PR-side commits plus the reviewed merge-result "
+            "boundary commit, without recreating merge branches"
         ),
     )
     parser.add_argument(
@@ -762,6 +780,22 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "rewrite first-parent gui-qml PR merges as real two-parent merge commits; "
             "the recreated merge uses the filtered original merge tree as the resolved result"
+        ),
+    )
+    parser.add_argument(
+        "--retitle-pr-merge-boundaries",
+        action="store_true",
+        help=(
+            "with --expand-pr-side-commits/--linear-pr-history, retitle one-parent "
+            "PR merge-result boundary commits from 'Merge ...' to 'Apply ...'"
+        ),
+    )
+    parser.add_argument(
+        "--drop-pr-merge-boundaries",
+        action="store_true",
+        help=(
+            "with --expand-pr-side-commits/--linear-pr-history, omit the one-parent "
+            "PR merge-result boundary commits entirely"
         ),
     )
     parser.add_argument(
@@ -791,8 +825,15 @@ def main() -> int:
         )
         if mode_count > 1:
             raise ScriptError(
-                "--linear-first-parent, --expand-pr-side-commits, and --preserve-pr-merges are mutually exclusive"
+                "--linear-first-parent, --expand-pr-side-commits/--linear-pr-history, "
+                "and --preserve-pr-merges are mutually exclusive"
             )
+        if args.retitle_pr_merge_boundaries and not args.expand_pr_side_commits:
+            raise ScriptError("--retitle-pr-merge-boundaries requires --expand-pr-side-commits/--linear-pr-history")
+        if args.drop_pr_merge_boundaries and not args.expand_pr_side_commits:
+            raise ScriptError("--drop-pr-merge-boundaries requires --expand-pr-side-commits/--linear-pr-history")
+        if args.drop_pr_merge_boundaries and args.retitle_pr_merge_boundaries:
+            raise ScriptError("--drop-pr-merge-boundaries and --retitle-pr-merge-boundaries are mutually exclusive")
         repo = git_top_level(Path(args.repo).resolve())
         old_head = rev_parse(repo, args.source_ref)
         base_ref = rev_parse(repo, args.base_ref) if args.base_ref else None
@@ -812,6 +853,8 @@ def main() -> int:
             linear_first_parent=args.linear_first_parent,
             expand_pr_side_commits=args.expand_pr_side_commits,
             preserve_pr_merges=args.preserve_pr_merges,
+            retitle_pr_merge_boundaries=args.retitle_pr_merge_boundaries,
+            drop_pr_merge_boundaries=args.drop_pr_merge_boundaries,
             base_ref=base_ref,
             trust_source_provenance=args.trust_source_provenance,
         )

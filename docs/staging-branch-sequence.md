@@ -58,22 +58,24 @@ cd ../gui-qml-qt6
 ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
   --source-ref qt6-main-provenance-trailers \
   --branch qt6-src-qml-on-staging \
-  --preserve-pr-merges \
+  --linear-pr-history \
+  --drop-pr-merge-boundaries \
   --trust-source-provenance \
   --base-ref refs/heads/fork/staging \
   --switch
 ```
 
-Use `--preserve-pr-merges` for the complete staging branch. It rewrites the
-PR-side commits onto a side branch, then recreates each
-`Merge bitcoin-core/gui-qml#...` commit as a real two-parent merge. The recreated
-merge uses the filtered original merge tree as the resolved result, so conflicts
-already resolved in reviewed gui-qml PR merges do not have to be rediscovered by
-a later linear rebase.
+Use `--linear-pr-history` for the complete staging branch. It keeps reviewed
+PR-side commits in maintainer order, but writes them as a single-parent import
+stream instead of recreating side branches. Use `--drop-pr-merge-boundaries` to
+omit the first-parent `Merge bitcoin-core/gui-qml#...` commits entirely from the
+generated staging branch.
 
-The older `--expand-pr-side-commits` mode keeps PR-side author commits but
-linearizes the merge boundary, so it can expose conflicts that the original PR
-merge had already resolved. `--linear-first-parent` remains useful only for
+`--linear-pr-history` is an alias for the older `--expand-pr-side-commits`
+mode. `--preserve-pr-merges` remains available only when you specifically want
+review chunks as recreated two-parent merge commits. `--retitle-pr-merge-boundaries`
+keeps the merge-result boundary commits but renames their subjects from
+`Merge ...` to `Apply ...`. `--linear-first-parent` remains useful only for
 compact/audit branches where individual PR-side commits are intentionally
 collapsed.
 
