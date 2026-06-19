@@ -3,14 +3,17 @@
 This is the repeatable sequence for building the complete staging branch from
 `origin/qt6-dev`.
 
-## 1. Create the staging base
+## 1. Create the staging workspace and base
 
-Apply the bootstrap patch series:
+Start from a fresh clone, then apply the bootstrap patch series:
 
 ```bash
-cd ../gui-qml-qt6
-git switch -c fork/staging origin/qt6-dev
-git am --whitespace=nowarn $(sed 's#^#../gui-qml-maintainer-tools/patches/staging-bootstrap/#' ../gui-qml-maintainer-tools/patches/staging-bootstrap/series)
+git clone git@github.com:bitcoin-core/gui-qml.git gui-qml-staging-work
+(
+  cd gui-qml-staging-work
+  git switch -c fork/staging origin/qt6-dev
+  git am --whitespace=nowarn $(sed 's#^#../patches/staging-bootstrap/#' ../patches/staging-bootstrap/series)
+)
 ```
 
 This produces the staging-only base commits that prepare Qt/QML dependencies,
@@ -27,8 +30,10 @@ retained from the `git format-patch` headers. Avoid `git apply` plus a fresh
 Fetch the gui-qml source history that should be imported:
 
 ```bash
-cd ../gui-qml-qt6
-git fetch origin qt6 qt6-dev
+(
+  cd gui-qml-staging-work
+  git fetch origin main qt6 qt6-dev
+)
 ```
 
 Prepare the qt6 provenance branch in two stages. Commits through the PR 450
@@ -37,33 +42,32 @@ Commits after that import tip are qt6-only commits, so their `Rebased-From:`
 trailers point to the qt6 commit hashes themselves.
 
 ```bash
-../gui-qml-maintainer-tools/add_filter_branch_metadata.py \
-  --source ../gui-qml \
-  --source-ref origin/main \
-  --target . \
-  --target-ref origin/qt6 \
-  --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
-  --tag-target-descendants \
-  --allow-subject-fallback \
-  --branch qt6-main-provenance-trailers \
-  --switch
+(
+  cd gui-qml-staging-work
+  ../add_filter_branch_metadata.py --switch
+)
 ```
+
+The metadata script defaults to the local staging workspace layout:
+source repo `.`, `origin/main`, target repo `.`, `origin/qt6`, import tip
+`39eb251ad740271bf10820920275e90f219a0290`, `--tag-target-descendants`,
+and branch `qt6-main-provenance-trailers`.
 
 ## 3. Filter gui-qml paths onto staging
 
 Build the filtered import directly on top of the staging base:
 
 ```bash
-cd ../gui-qml-qt6
-../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-  --source-ref qt6-main-provenance-trailers \
-  --branch qt6-src-qml-on-staging \
-  --linear-pr-history \
-  --drop-pr-merge-boundaries \
-  --trust-source-provenance \
-  --base-ref refs/heads/fork/staging \
-  --switch
+(
+  cd gui-qml-staging-work
+  ../filter_branch_for_staging.py --switch
+)
 ```
+
+The staging filter defaults to `qt6-main-provenance-trailers`,
+`qt6-src-qml-on-staging`, `--linear-pr-history`,
+`--drop-pr-merge-boundaries`, `--trust-source-provenance`, and
+`--base-ref refs/heads/fork/staging`.
 
 Use `--linear-pr-history` for the complete staging branch. It keeps reviewed
 PR-side commits in maintainer order, but writes them as a single-parent import

@@ -5,8 +5,6 @@ The normal workflow is to run this from the gui-qml-qt6 checkout after adding
 provenance trailers:
 
     ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
-        --source-ref qt6-main-provenance-trailers \
-        --branch qt6-src-qml-filtered \
         --switch
 
 The path filter keeps only the QML application and tests:
@@ -32,8 +30,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 
-DEFAULT_SOURCE_REF = "HEAD"
-DEFAULT_BRANCH = "qt6-src-qml-filtered"
+DEFAULT_SOURCE_REF = "qt6-main-provenance-trailers"
+DEFAULT_BRANCH = "qt6-src-qml-on-staging"
+DEFAULT_BASE_REF = "refs/heads/fork/staging"
+DEFAULT_TRUST_SOURCE_PROVENANCE = True
 PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge (bitcoin-core/gui-qml#[0-9]+)(?::|$)")
 TRAILER_RE = re.compile(r"^([A-Za-z0-9-]+):\s*(.*)$")
 
@@ -747,6 +747,19 @@ def validate_paths(paths: list[str]) -> list[str]:
     return bad
 
 
+def apply_default_history_mode(args: argparse.Namespace) -> None:
+    """Default to the full staging import unless another mode was selected."""
+    expand_pr_side_commits = getattr(args, "expand_pr_side_commits", False)
+    if not (args.linear_first_parent or expand_pr_side_commits or args.preserve_pr_merges):
+        args.expand_pr_side_commits = True
+    else:
+        args.expand_pr_side_commits = expand_pr_side_commits
+    drop_pr_merge_boundaries = getattr(args, "drop_pr_merge_boundaries", None)
+    args.drop_pr_merge_boundaries = drop_pr_merge_boundaries
+    if args.drop_pr_merge_boundaries is None:
+        args.drop_pr_merge_boundaries = args.expand_pr_side_commits and not args.retitle_pr_merge_boundaries
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Create a staging-layout branch from gui-qml history.",
@@ -767,10 +780,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--expand-pr-side-commits",
         "--linear-pr-history",
         action="store_true",
+        default=argparse.SUPPRESS,
         help=(
-            "rewrite a single-parent import stream that expands each gui-qml PR "
-            "merge into its PR-side commits plus the reviewed merge-result "
-            "boundary commit, without recreating merge branches"
+            "default when no history mode is selected; rewrite a single-parent "
+            "import stream that expands each gui-qml PR merge into its PR-side "
+            "commits plus the reviewed merge-result boundary commit, without "
+            "recreating merge branches"
         ),
     )
     parser.add_argument(
@@ -793,23 +808,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--drop-pr-merge-boundaries",
         action="store_true",
+        default=argparse.SUPPRESS,
         help=(
             "with --expand-pr-side-commits/--linear-pr-history, omit the one-parent "
             "PR merge-result boundary commits entirely"
         ),
     )
     parser.add_argument(
+        "--keep-pr-merge-boundaries",
+        dest="drop_pr_merge_boundaries",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="with --expand-pr-side-commits/--linear-pr-history, keep one-parent PR merge-result boundary commits",
+    )
+    parser.add_argument(
         "--base-ref",
+        default=DEFAULT_BASE_REF,
         help="build rewritten commits on this base tree, preserving paths not owned by the filter",
+    )
+    parser.add_argument(
+        "--no-base-ref",
+        dest="base_ref",
+        action="store_const",
+        const=None,
+        default=argparse.SUPPRESS,
+        help="build the filtered branch without overlaying it onto a base tree",
     )
     parser.add_argument("--write-map", type=Path, help="write old-to-new rewrite map to this file")
     parser.add_argument(
         "--trust-source-provenance",
         action="store_true",
+        default=DEFAULT_TRUST_SOURCE_PROVENANCE,
         help=(
             "reuse existing Github-Pull/Rebased-From trailers from the source ref; "
             "use after add_filter_branch_metadata.py has prepared two-stage provenance"
         ),
+    )
+    parser.add_argument(
+        "--no-trust-source-provenance",
+        dest="trust_source_provenance",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="ignore existing Github-Pull/Rebased-From trailers on the source ref",
     )
     return parser
 
@@ -819,6 +859,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        apply_default_history_mode(args)
         mode_count = sum(
             bool(value)
             for value in (args.linear_first_parent, args.expand_pr_side_commits, args.preserve_pr_merges)

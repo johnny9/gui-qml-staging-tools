@@ -3,11 +3,7 @@
 
 The normal workflow is to run this from the target checkout:
 
-    ../gui-qml-maintainer-tools/add_filter_branch_metadata.py \
-        --source ../gui-qml-main \
-        --target-ref qt6 \
-        --target-import-tip 39eb251ad740271bf10820920275e90f219a0290 \
-        --branch qt6-main-provenance-trailers
+    ../gui-qml-maintainer-tools/add_filter_branch_metadata.py --switch
 
 The script matches commits in the filtered target history back to commits in the
 source history using stable patch-ids after applying the configured path maps.
@@ -28,10 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_SOURCE_REPO = "../gui-qml-main"
-DEFAULT_SOURCE_REF = "main"
-DEFAULT_TARGET_REF = "HEAD"
-DEFAULT_BRANCH = "qml-provenance-trailers"
+DEFAULT_SOURCE_REPO = "."
+DEFAULT_SOURCE_REF = "origin/main"
+DEFAULT_TARGET_REF = "origin/qt6"
+DEFAULT_TARGET_IMPORT_TIP = "39eb251ad740271bf10820920275e90f219a0290"
+DEFAULT_TAG_TARGET_DESCENDANTS = True
+DEFAULT_BRANCH = "qt6-main-provenance-trailers"
 DEFAULT_PATH_MAPS = ("src/qml:qml", "qml:qml")
 PR_IN_MERGE_SUBJECT_RE = re.compile(r"^Merge ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+)(?::|$)")
 
@@ -532,12 +530,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-ref", default=DEFAULT_TARGET_REF, help="target ref to rewrite")
     parser.add_argument(
         "--target-import-tip",
-        help="last commit in the target that came from the filtered source; defaults to matching source tip subject",
+        default=DEFAULT_TARGET_IMPORT_TIP,
+        help="last commit in the target that came from the filtered source; use 'auto' to match the source tip subject",
     )
     parser.add_argument(
         "--tag-target-descendants",
+        dest="tag_target_descendants",
         action="store_true",
+        default=DEFAULT_TAG_TARGET_DESCENDANTS,
         help="also tag commits after --target-import-tip using target branch PR merge context",
+    )
+    parser.add_argument(
+        "--no-tag-target-descendants",
+        dest="tag_target_descendants",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="only tag commits through --target-import-tip",
     )
     parser.add_argument("--branch", default=DEFAULT_BRANCH, help="new branch to create at the rewritten tip")
     parser.add_argument("--force-branch", action="store_true", help="overwrite --branch if it already exists")
@@ -575,9 +583,9 @@ def main() -> int:
         path_maps = args.path_map or [parse_path_map(value) for value in DEFAULT_PATH_MAPS]
 
         target_import_tip = (
-            rev_parse(target_repo, args.target_import_tip)
-            if args.target_import_tip
-            else find_target_import_tip(target_repo, target_ref, source_repo, source_ref)
+            find_target_import_tip(target_repo, target_ref, source_repo, source_ref)
+            if args.target_import_tip == "auto"
+            else rev_parse(target_repo, args.target_import_tip)
         )
 
         trailer_map, match_kinds, issues = build_trailer_map(
