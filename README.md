@@ -43,10 +43,11 @@ copied from the source branch.
 Typical use for the qt6 filtered import:
 
 ```bash
-git clone git@github.com:bitcoin-core/gui-qml.git gui-qml-staging-work
+git clone git@github.com:bitcoin/bitcoin.git gui-qml-staging-work
 (
   cd gui-qml-staging-work
-  git fetch origin main qt6 qt6-dev
+  git remote add gui-qml git@github.com:bitcoin-core/gui-qml.git
+  git fetch gui-qml main qt6
   ../add_filter_branch_metadata.py --switch
 )
 ```
@@ -65,9 +66,9 @@ inside this maintainer-tools checkout. They use:
 
 ```text
 --source .
---source-ref origin/main
+--source-ref gui-qml/main
 --target .
---target-ref origin/qt6
+--target-ref gui-qml/qt6
 --target-import-tip 39eb251ad740271bf10820920275e90f219a0290
 --tag-target-descendants
 --branch qt6-main-provenance-trailers
@@ -136,7 +137,7 @@ the filtered merge topology:
 (
   cd gui-qml-staging-work
   ../filter_branch_for_staging.py \
-    --source-ref origin/qt6 \
+    --source-ref gui-qml/qt6 \
     --branch qt6-src-qml-first-parent \
     --linear-first-parent \
     --no-base-ref \
@@ -153,7 +154,8 @@ applied in maintainer order. This compact mode does not preserve the individual
 PR-side commits, so it should not be used for a final staging branch where
 GitHub contribution attribution matters.
 
-For the full staging branch, first prepare qt6 with two-stage provenance. The
+For the full staging branch, first create `fork/staging` from the fixed Bitcoin
+Core base commit and prepare qt6 with two-stage provenance. The
 commits through the PR 450 filtered import are mapped back to the historical
 main branch source commits, while qt6-only descendants get `Rebased-From:`
 trailers pointing to their qt6 commit hashes:
@@ -161,6 +163,8 @@ trailers pointing to their qt6 commit hashes:
 ```bash
 (
   cd gui-qml-staging-work
+  git switch -c fork/staging 27472a542c605df547b957dd947fa301f6efa63a
+  git am --whitespace=nowarn $(sed 's#^#../patches/staging-bootstrap/#' ../patches/staging-bootstrap/series)
   ../add_filter_branch_metadata.py --switch
 )
 ```
@@ -198,6 +202,7 @@ QML history. The repeatable patch series lives in
 `patches/staging-cmake-sequence/`, with a `series` file and insertion-point
 notes in that directory's README.
 
-For the full sequence from `origin/qt6-dev` to the complete staging branch, see
+For the full sequence from the fixed Bitcoin Core base commit to the complete
+staging branch, see
 `docs/staging-branch-sequence.md`. The staging-base commits are captured in
 `patches/staging-bootstrap/`.

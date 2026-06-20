@@ -1,17 +1,17 @@
 # staging branch sequence
 
-This is the repeatable sequence for building the complete staging branch from
-`origin/qt6-dev`.
+This is the repeatable sequence for building the complete staging branch from a
+fixed Bitcoin Core base commit.
 
 ## 1. Create the staging workspace and base
 
 Start from a fresh clone, then apply the bootstrap patch series:
 
 ```bash
-git clone git@github.com:bitcoin-core/gui-qml.git gui-qml-staging-work
+git clone git@github.com:bitcoin/bitcoin.git gui-qml-staging-work
 (
   cd gui-qml-staging-work
-  git switch -c fork/staging origin/qt6-dev
+  git switch -c fork/staging 27472a542c605df547b957dd947fa301f6efa63a
   git am --whitespace=nowarn $(sed 's#^#../patches/staging-bootstrap/#' ../patches/staging-bootstrap/series)
 )
 ```
@@ -32,7 +32,8 @@ Fetch the gui-qml source history that should be imported:
 ```bash
 (
   cd gui-qml-staging-work
-  git fetch origin main qt6 qt6-dev
+  git remote add gui-qml git@github.com:bitcoin-core/gui-qml.git
+  git fetch gui-qml main qt6
 )
 ```
 
@@ -49,7 +50,7 @@ trailers point to the qt6 commit hashes themselves.
 ```
 
 The metadata script defaults to the local staging workspace layout:
-source repo `.`, `origin/main`, target repo `.`, `origin/qt6`, import tip
+source repo `.`, `gui-qml/main`, target repo `.`, `gui-qml/qt6`, import tip
 `39eb251ad740271bf10820920275e90f219a0290`, `--tag-target-descendants`,
 and branch `qt6-main-provenance-trailers`.
 
@@ -119,14 +120,11 @@ continuing the sequence. Each entry should identify the operation, the patch or
 source commit being applied, the conflicting paths, the staging-specific
 decision, and the validation command that covered the result.
 
-Current verified snapshot:
+Pinned inputs:
 
 ```text
-origin/qt6-dev              27472a542c
-fork/staging                12b5c02698
-qt6-main-provenance-trailers 3dac81b11c
-qt6-src-qml-on-staging  f9658a1774
-qt6-src-qml-on-staging-cmake 78b833601b
+bitcoin/bitcoin base commit 27472a542c605df547b957dd947fa301f6efa63a
+gui-qml import tip          39eb251ad740271bf10820920275e90f219a0290
 ```
 
 ## 5. Validate
@@ -134,14 +132,17 @@ qt6-src-qml-on-staging-cmake 78b833601b
 Basic configure checkpoint:
 
 ```bash
-cmake -S ../gui-qml-qt6 -B /tmp/gui-qml-cmake-seq-build -GNinja \
-  -DBUILD_GUI=ON \
-  -DBUILD_TESTS=OFF \
-  -DBUILD_GUI_TESTS=OFF \
-  -DENABLE_WALLET=ON \
-  -DWITH_QRENCODE=OFF \
-  -DENABLE_IPC=OFF \
-  -DWITH_ZMQ=OFF
+(
+  cd gui-qml-staging-work
+  cmake -S . -B /tmp/gui-qml-cmake-seq-build -GNinja \
+    -DBUILD_GUI=ON \
+    -DBUILD_TESTS=OFF \
+    -DBUILD_GUI_TESTS=OFF \
+    -DENABLE_WALLET=ON \
+    -DWITH_QRENCODE=OFF \
+    -DENABLE_IPC=OFF \
+    -DWITH_ZMQ=OFF
+)
 ```
 
 Build checkpoint:

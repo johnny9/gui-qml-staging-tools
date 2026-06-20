@@ -4,7 +4,7 @@
 The normal workflow is to run this from the gui-qml-qt6 checkout after adding
 provenance trailers:
 
-    ../gui-qml-maintainer-tools/filter_branch_for_staging.py \
+    ../filter_branch_for_staging.py \
         --switch
 
 The path filter keeps only the QML application and tests:

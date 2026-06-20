@@ -3,7 +3,7 @@
 
 The normal workflow is to run this from the target checkout:
 
-    ../gui-qml-maintainer-tools/add_filter_branch_metadata.py --switch
+    ../add_filter_branch_metadata.py --switch
 
 The script matches commits in the filtered target history back to commits in the
 source history using stable patch-ids after applying the configured path maps.
@@ -25,8 +25,8 @@ from pathlib import Path
 
 
 DEFAULT_SOURCE_REPO = "."
-DEFAULT_SOURCE_REF = "origin/main"
-DEFAULT_TARGET_REF = "origin/qt6"
+DEFAULT_SOURCE_REF = "gui-qml/main"
+DEFAULT_TARGET_REF = "gui-qml/qt6"
 DEFAULT_TARGET_IMPORT_TIP = "39eb251ad740271bf10820920275e90f219a0290"
 DEFAULT_TAG_TARGET_DESCENDANTS = True
 DEFAULT_BRANCH = "qt6-main-provenance-trailers"
