@@ -1,4 +1,3 @@
-0001-scripted-diff-Rename-UNIQUE_NAME-to-BITCOIN_UNIQUE_N.patch
 0002-cmake-Require-Qt-Qml-and-Qt-Quick-modules-when-BUILD.patch
 0003-depends-Add-Qt-Qml-and-Qt-Quick-modules.patch
 0004-cmake-Add-bitcoin-qml-executable.patch

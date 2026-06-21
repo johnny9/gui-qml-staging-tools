@@ -9,8 +9,8 @@ cba6358c1b cmake: Incorporate `qml` subdirectory
 19bb14da88 cmake: Add `bitcoin-qml` executable
 09508f4d1c depends: Add Qt Qml and Qt Quick modules
 51c7877a13 cmake: Require Qt Qml and Qt Quick modules when `BUILD_GUI=ON`
-6a8085d2f9 scripted-diff: Rename UNIQUE_NAME to BITCOIN_UNIQUE_NAME
 ```
+
 
 To recreate the staging base:
 
